@@ -51,10 +51,7 @@ async function getMarketData(mintAddress) {
       symbol: pair.baseToken?.symbol || '',
       priceUsd: pair.priceUsd ? `$${Number(pair.priceUsd).toFixed(8).replace(/\.?0+$/, '')}` : 'غير متاح',
       liquidity: pair.liquidity?.usd ? `$${Number(pair.liquidity.usd).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : 'غير متاح',
-      marketCap: pair.marketCap ? `$${Number(pair.marketCap).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : 'غير متاح',
-      priceChange1h: pair.priceChange?.h1 ?? 0,
-      buys1h: pair.txns?.h1?.buys ?? 0,
-      sells1h: pair.txns?.h1?.sells ?? 0
+      marketCap: pair.marketCap ? `$${Number(pair.marketCap).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : 'غير متاح'
     };
   } catch (e) {
     return null;
@@ -276,3 +273,5 @@ bot.on('message', async (msg) => {
   if (match) {
     const mintAddress = match.at(0);
     const waitMsg = await bot.sendMessage(chatId, '⏳ جاري فحص العملة وبيانات السوق...');
+    try {
+      const report = await checkSolanaToken(mintAddress);
