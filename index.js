@@ -7,9 +7,16 @@ const port = process.env.PORT || 3000;
 
 const bot = new TelegramBot(token);
 
-bot.setWebHook(`${url}/bot${token}`)
-  .then(() => console.log('SUCCESS: Webhook connected!'))
-  .catch((err) => console.error('ERROR: Webhook failed ->', err.message));
+function connectWebhook() {
+  bot.setWebHook(`${url}/bot${token}`)
+    .then(() => console.log('SUCCESS: Webhook connected!'))
+    .catch((err) => {
+      console.error('ERROR: Webhook failed ->', err.message);
+      setTimeout(connectWebhook, 40000);
+    });
+}
+
+setTimeout(connectWebhook, 40000);
 
 http.createServer((req, res) => {
   if (req.method === 'POST' && req.url === `/bot${token}`) {
@@ -18,7 +25,6 @@ http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const update = JSON.parse(body);
-        console.log('Received message:', update.message?.text);
         bot.processUpdate(update);
       } catch (e) {
         console.error(e);
@@ -35,5 +41,5 @@ http.createServer((req, res) => {
 });
 
 bot.on('message', (msg) => {
-  bot.sendMessage(msg.chat.id, "أهلاً بك! تم استلام رسالتك: " + (msg.text || ''));
+  bot.sendMessage(msg.chat.id, "أهلاً بك! البوت يعمل الآن بنجاح: " + (msg.text || ''));
 });
