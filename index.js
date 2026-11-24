@@ -2,21 +2,9 @@ const http = require('http');
 const TelegramBot = require('node-telegram-bot-api');
 
 const token = (process.env.BOT_TOKEN || '').trim();
-const url = 'https://nanwo-bot.onrender.com';
 const port = process.env.PORT || 3000;
 
 const bot = new TelegramBot(token);
-
-function connectWebhook() {
-  bot.setWebHook(`${url}/bot${token}`)
-    .then(() => console.log('SUCCESS: Webhook connected!'))
-    .catch((err) => {
-      console.error('ERROR: Webhook failed ->', err.message);
-      setTimeout(connectWebhook, 40000);
-    });
-}
-
-setTimeout(connectWebhook, 40000);
 
 http.createServer((req, res) => {
   if (req.method === 'POST' && req.url === `/bot${token}`) {
@@ -25,6 +13,7 @@ http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const update = JSON.parse(body);
+        console.log('Message received:', update.message?.text);
         bot.processUpdate(update);
       } catch (e) {
         console.error(e);
