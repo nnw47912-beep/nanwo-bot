@@ -275,3 +275,26 @@ bot.on('message', async (msg) => {
     const waitMsg = await bot.sendMessage(chatId, '⏳ جاري فحص العملة وبيانات السوق...');
     try {
       const report = await checkSolanaToken(mintAddress);
+      const solscanUrl = ['https:', '', ['solscan', 'io'].join('.'), 'token', mintAddress].join('/');
+      const dexUrl = ['https:', '', ['dexscreener', 'com'].join('.'), 'solana', mintAddress].join('/');
+      await bot.editMessageText(report, {
+        chat_id: chatId,
+        message_id: waitMsg.message_id,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '🔎 Solscan', url: solscanUrl },
+            { text: '📊 DexScreener', url: dexUrl }
+          ]]
+        }
+      });
+    } catch (err) {
+      await bot.editMessageText(`❌ تعذر الفحص حالياً (${err.message})، حاول مرة أخرى.`, {
+        chat_id: chatId,
+        message_id: waitMsg.message_id
+      });
+    }
+  } else {
+    bot.sendMessage(chatId, 'أرسل *عنوان عملة سولانا* لفحصها، أو اكتب كلمة *بحث* لاكتشاف العملات النشطة.', { parse_mode: 'Markdown' });
+  }
+});
