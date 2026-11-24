@@ -2,7 +2,7 @@ const http = require('http');
 const TelegramBot = require('node-telegram-bot-api');
 
 const token = process.env.BOT_TOKEN;
-const url = 'https://onrender.com';
+const url = 'https://nanwo-bot.onrender.com';
 const port = process.env.PORT || 3000;
 
 // إنشاء البوت بدون polling
