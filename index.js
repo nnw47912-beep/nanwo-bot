@@ -3,20 +3,40 @@ const TelegramBot = require('node-telegram-bot-api');
 
 const token = (process.env.BOT_TOKEN || '').trim();
 const port = process.env.PORT || 3000;
-const rpcUrl = (process.env.SOLANA_RPC_URL || 'https://publicnode.com').trim();
+
+const rpcEndpoints = [
+  process.env.SOLANA_RPC_URL,
+  'https://api.mainnet-beta.solana.com',
+  'https://api.mainnet.solana.com',
+  'https://drpc.org'
+].filter(Boolean);
 
 const bot = new TelegramBot(token);
 
 async function callSolanaRPC(method, params) {
-  const response = await fetch(rpcUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
-  });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const data = await response.json();
-  if (data.error) throw new Error(data.error.message);
-  return data.result;
+  let lastError = 'فشل الاتصال بجميع الخوادم';
+  for (const url of rpcEndpoints) {
+    try {
+      const response = await fetch(url.trim(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
+      });
+      if (!response.ok) {
+        lastError = `HTTP ${response.status}`;
+        continue;
+      }
+      const data = await response.json();
+      if (data.error) {
+        lastError = data.error.message;
+        continue;
+      }
+      return data.result;
+    } catch (err) {
+      lastError = err.message;
+    }
+  }
+  throw new Error(lastError);
 }
 
 async function checkSolanaToken(mintAddress) {
@@ -42,7 +62,7 @@ async function checkSolanaToken(mintAddress) {
   const mintAuth = info.mintAuthority;
   const freezeAuth = info.freezeAuthority;
 
-  let top10Text = 'غير متاح';
+  let holdersSection = 'غير متاح';
   let holdersWarning = '';
 
   try {
@@ -51,13 +71,21 @@ async function checkSolanaToken(mintAddress) {
       const top10 = largest.value.slice(0, 10);
       const top10Sum = top10.reduce((sum, acc) => sum + Number(acc.amount || 0), 0);
       const top10Percent = ((top10Sum / rawSupply) * 100).toFixed(2);
-      top10Text = `${top10Percent}%`;
+
+      const listLines = top10.map((acc, i) => {
+        const pct = ((Number(acc.amount || 0) / rawSupply) * 100).toFixed(2);
+        const shortAddr = `${acc.address.slice(0, 4)}...${acc.address.slice(-4)}`;
+        return `${i + 1}. \`${shortAddr}\` — *${pct}%*`;
+      }).join('\n');
+
+      holdersSection = `*${top10Percent}%* من إجمالي العملة:\n${listLines}`;
+
       if (Number(top10Percent) > 50) {
         holdersWarning = '\n⚠️ *تنبيه تركز:* أكبر 10 محافظ تسيطر على أكثر من 50% من المعروض!';
       }
     }
   } catch (e) {
-    top10Text = 'تعذر جلب المحافظ';
+    holdersSection = 'تعذر جلب قائمة المحافظ حالياً';
   }
 
   const mintStatus = mintAuth
@@ -75,10 +103,10 @@ async function checkSolanaToken(mintAddress) {
   return (
     `🔍 *تقرير فحص عملة سولانا*\n\n` +
     `📌 *العنوان:*\n\`${mintAddress}\`\n\n` +
-    `💰 *إجمالي المعروض (Supply):*\n${totalSupply.toLocaleString('en-US', { maximumFractionDigits: 2 })}\n\n` +
-    `🏭 *صلاحية الصك (Mint Authority):*\n${mintStatus}\n\n` +
-    `❄️ *صلاحية التجميد (Freeze Authority):*\n${freezeStatus}\n\n` +
-    `🐋 *استحواذ أكبر 10 محافظ:* ${top10Text}${holdersWarning}\n\n` +
+    `💰 *إجمالي المعروض:* ${totalSupply.toLocaleString('en-US', { maximumFractionDigits: 2 })}\n\n` +
+    `🏭 *صلاحية الصك (Mint):*\n${mintStatus}\n\n` +
+    `❄️ *صلاحية التجميد (Freeze):*\n${freezeStatus}\n\n` +
+    `🐋 *أكبر 10 محافظ تستحوذ على* ${holdersSection}${holdersWarning}\n\n` +
     `${securityAlert}`
   );
 }
@@ -111,28 +139,35 @@ bot.on('message', async (msg) => {
   if (text === '/start') {
     return bot.sendMessage(
       chatId,
-      '👋 أهلاً بك في بوت فحص عملات سولانا!\n\nأرسل لي *عنوان أي عملة (Token Mint Address)* وسأفحص لك صلاحيات الصك والتجميد وأكبر 10 محافظ فوراً.',
+      '👋 أهلاً بك في بوت فحص عملات سولانا!\n\nأرسل لي *عنوان أي عملة (Mint Address)* وسأفحص لك صلاحيات الصك والتجميد وأكبر 10 محافظ فوراً.',
       { parse_mode: 'Markdown' }
     );
   }
 
-  const solanaAddressRegex = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
-  if (solanaAddressRegex.test(text)) {
-    const waitMsg = await bot.sendMessage(chatId, '⏳ جاري فحص العملة على شبكة سولانا...');
+  const match = text.match(/[1-9A-HJ-NP-Za-km-z]{32,44}/);
+  if (match) {
+    const mintAddress = match[0];
+    const waitMsg = await bot.sendMessage(chatId, '⏳ جاري فحص العملة وجلب أكبر 10 محافظ...');
     try {
-      const report = await checkSolanaToken(text);
+      const report = await checkSolanaToken(mintAddress);
       await bot.editMessageText(report, {
         chat_id: chatId,
         message_id: waitMsg.message_id,
-        parse_mode: 'Markdown'
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '🔎 Solscan', url: `https://solscan.io{mintAddress}` },
+            { text: '📊 DexScreener', url: `https://dexscreener.com{mintAddress}` }
+          ]]
+        }
       });
     } catch (err) {
-      await bot.editMessageText(`❌ حدث خطأ أثناء الاتصال بالشبكة: ${err.message}`, {
+      await bot.editMessageText(`❌ تعذر الفحص حالياً (${err.message})، حاول مرة أخرى بعد قليل.`, {
         chat_id: chatId,
         message_id: waitMsg.message_id
       });
     }
   } else {
-    bot.sendMessage(chatId, 'يرجى إرسال عنوان عقد عملة سولانا صحيح (Mint Address) لفحصه.');
+    bot.sendMessage(chatId, 'يرجى إرسال عنوان عقد عملة سولانا (Mint Address) لفحصه.');
   }
 });
