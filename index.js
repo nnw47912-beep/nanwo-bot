@@ -6,9 +6,9 @@ const port = process.env.PORT || 3000;
 
 const rpcEndpoints = [
   process.env.SOLANA_RPC_URL,
-  'https://' + '://solana.com',
-  'https://' + 'solana.drpc.org',
-  'https://' + '://solana.com'
+  'https://' + ['api', 'mainnet-beta', 'solana', 'com'].join('.'),
+  'https://' + ['solana', 'drpc', 'org'].join('.'),
+  'https://' + ['api', 'mainnet', 'solana', 'com'].join('.')
 ].filter(Boolean);
 
 const bot = new TelegramBot(token);
@@ -150,14 +150,16 @@ bot.on('message', async (msg) => {
     const waitMsg = await bot.sendMessage(chatId, '⏳ جاري فحص العملة وجلب أكبر 10 محافظ...');
     try {
       const report = await checkSolanaToken(mintAddress);
+      const solscanUrl = ['https:', '', ['solscan', 'io'].join('.'), 'token', mintAddress].join('/');
+      const dexUrl = ['https:', '', ['dexscreener', 'com'].join('.'), 'solana', mintAddress].join('/');
       await bot.editMessageText(report, {
         chat_id: chatId,
         message_id: waitMsg.message_id,
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [[
-            { text: '🔎 Solscan', url: `https://solscan.io{mintAddress}` },
-            { text: '📊 DexScreener', url: `https://dexscreener.com{mintAddress}` }
+            { text: '🔎 Solscan', url: solscanUrl },
+            { text: '📊 DexScreener', url: dexUrl }
           ]]
         }
       });
