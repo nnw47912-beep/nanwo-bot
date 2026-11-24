@@ -21,7 +21,6 @@ http.createServer((req, res) => {
       res.end();
     });
   } else if (req.url === '/setup') {
-    // رابط جاهز للربط دون الحاجة لكتابة التوكن يدوياً
     res.writeHead(302, {
       'Location': `https://telegram.org{token}/setWebhook?url=${url}/bot${token}`
     });
