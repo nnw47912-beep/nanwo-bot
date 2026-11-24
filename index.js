@@ -1,3 +1,20 @@
+const http = require('http');
+const TelegramBot = require('node-telegram-bot-api');
 
-Your token was replaced with a new one. You can use this token to access HTTP API:
-9002904344:AAFdcXb1zrOMzG_95tJdMhPI_RHIGCirtLo
+http.createServer((req, res) => {
+  res.write("Bot is running!");
+  res.end();
+}).listen(process.env.PORT || 3000);
+
+const token = process.env.BOT_TOKEN;
+const bot = new TelegramBot(token, { polling: true });
+
+bot.onText(/\/start/, (msg) => {
+  bot.sendMessage(msg.chat.id, "أهلاً بك! البوت يعمل الآن بنجاح.");
+});
+
+bot.on('message', (msg) => {
+  if (msg.text && !msg.text.startsWith('/')) {
+    bot.sendMessage(msg.chat.id, "تم استلام رسالتك: " + msg.text);
+  }
+});
