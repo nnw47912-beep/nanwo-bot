@@ -6,8 +6,8 @@ const port = process.env.PORT || 3000;
 
 const rpcEndpoints = [
   process.env.SOLANA_RPC_URL,
-  'https://api.mainnet-beta.solana.com',
-  'https://api.mainnet.solana.com',
+  'https://solana.com',
+  'https://solana.com',
   'https://drpc.org'
 ].filter(Boolean);
 
