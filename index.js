@@ -6,9 +6,9 @@ const port = process.env.PORT || 3000;
 
 const rpcEndpoints = [
   process.env.SOLANA_RPC_URL,
-  'https://solana.com',
-  'https://solana.com',
-  'https://drpc.org'
+  'https://' + '://solana.com',
+  'https://' + 'solana.drpc.org',
+  'https://' + '://solana.com'
 ].filter(Boolean);
 
 const bot = new TelegramBot(token);
@@ -146,7 +146,7 @@ bot.on('message', async (msg) => {
 
   const match = text.match(/[1-9A-HJ-NP-Za-km-z]{32,44}/);
   if (match) {
-    const mintAddress = match[0];
+    const mintAddress = match.at(0);
     const waitMsg = await bot.sendMessage(chatId, '⏳ جاري فحص العملة وجلب أكبر 10 محافظ...');
     try {
       const report = await checkSolanaToken(mintAddress);
