@@ -1,28 +1,39 @@
 const http = require('http');
 const TelegramBot = require('node-telegram-bot-api');
 
-http.createServer((req, res) => {
-  res.write("Bot is running!");
-  res.end();
-}).listen(process.env.PORT || 3000);
-
 const token = process.env.BOT_TOKEN;
-const bot = new TelegramBot(token, {
-  polling: {
-    interval: 2000,
-    autoStart: true,
-    params: { timeout: 10 }
+const url = 'https://onrender.com';
+const port = process.env.PORT || 3000;
+
+// إنشاء البوت بدون polling
+const bot = new TelegramBot(token);
+
+// ربط البوت برابط موقعك على Render
+bot.setWebHook(`${url}/bot${token}`);
+
+// استقبال الرسائل من تيليجرام ومعالجة فحص السيرفر
+http.createServer((req, res) => {
+  if (req.method === 'POST' && req.url === `/bot${token}`) {
+    let body = '';
+    req.on('data', chunk => { body += chunk.toString(); });
+    req.on('end', () => {
+      try {
+        bot.processUpdate(JSON.parse(body));
+      } catch (e) {
+        console.error(e);
+      }
+      res.writeHead(200);
+      res.end();
+    });
+  } else {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Bot is running via Webhook!');
   }
+}).listen(port, () => {
+  console.log(`Server is running on port ${port}`);
 });
 
-bot.on('polling_error', (err) => console.log(err.message));
-
+// أوامر البوت
 bot.onText(/\/start/, (msg) => {
-  bot.sendMessage(msg.chat.id, "أهلاً بك! البوت يعمل الآن بنجاح.");
-});
-
-bot.on('message', (msg) => {
-  if (msg.text && !msg.text.startsWith('/')) {
-    bot.sendMessage(msg.chat.id, "تم استلام رسالتك: " + msg.text);
-  }
+  bot.sendMessage(msg.chat.id, "يعمل الآن بنجاح!");
 });
