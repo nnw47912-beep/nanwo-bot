@@ -1,105 +1,93 @@
-const http = require('http');
-const TelegramBot = require('node-telegram-bot-api');
-
-const token = (process.env.BOT_TOKEN || '').trim();
-const port = process.env.PORT || 3000;
-
-const rpcEndpoints = [
-  process.env.SOLANA_RPC_URL,
-  'https://' + ['api', 'mainnet-beta', 'solana', 'com'].join('.'),
-  'https://' + ['solana', 'drpc', 'org'].join('.')
-].filter(Boolean);
-
-const bot = new TelegramBot(token);
-
-async function callSolanaRPC(method, params) {
-  let lastError = 'فشل الاتصال بالشبكة';
-  for (const url of rpcEndpoints) {
-    try {
-      const response = await fetch(url.trim(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
-      });
-      if (!response.ok) {
-        lastError = `HTTP ${response.status}`;
-        continue;
-      }
-      const data = await response.json();
-      if (data.error) {
-        lastError = data.error.message;
-        continue;
-      }
-      return data.result;
-    } catch (err) {
-      lastError = err.message;
-    }
-  }
-  throw new Error(lastError);
-}
-
-async function getMarketData(mintAddress) {
-  try {
-    const dexApi = ['https:', '', ['api', 'dexscreener', 'com'].join('.'), 'latest', 'dex', 'tokens', mintAddress].join('/');
-    const res = await fetch(dexApi);
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (!data.pairs || data.pairs.length === 0) return null;
-    const pair = data.pairs.sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)).at(0);
-    return {
-      name: pair.baseToken?.name || 'غير معروف',
-      symbol: pair.baseToken?.symbol || '',
-      priceUsd: pair.priceUsd ? `$${Number(pair.priceUsd).toFixed(8).replace(/\.?0+$/, '')}` : 'غير متاح',
-      liquidity: pair.liquidity?.usd ? `$${Number(pair.liquidity.usd).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : 'غير متاح',
-      marketCap: pair.marketCap ? `$${Number(pair.marketCap).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : 'غير متاح'
-    };
-  } catch (e) {
-    return null;
-  }
-}
-
 async function scanMomentumTokens() {
-  const boostsUrl = ['https:', '', ['api', 'dexscreener', 'com'].join('.'), 'token-boosts', 'top', 'v1'].join('/');
-  const res = await fetch(boostsUrl);
-  if (!res.ok) throw new Error('تعذر الوصول لبيانات السوق حالياً');
-  const boosts = await res.json();
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Accept': 'application/json'
+  };
 
-  const solanaMints = [...new Set(
-    (Array.isArray(boosts) ? boosts : [])
-      .filter(item => item.chainId === 'solana' && item.tokenAddress)
-      .map(item => item.tokenAddress)
-  )].slice(0, 12);
+  let candidates = [];
 
-  if (solanaMints.length === 0) {
-    return '⚠️ لم يتم العثور على عملات نشطة في هذه اللحظة، حاول مرة أخرى بعد دقائق.';
-  }
+  try {
+    const boostsUrl = ['https:', '', ['api', 'dexscreener', 'com'].join('.'), 'token-boosts', 'top', 'v1'].join('/');
+    const res = await fetch(boostsUrl, { headers });
+    if (res.ok) {
+      const boosts = await res.json();
+      const solanaMints = [...new Set(
+        (Array.isArray(boosts) ? boosts : [])
+          .filter(item => item.chainId === 'solana' && item.tokenAddress)
+          .map(item => item.tokenAddress)
+      )].slice(0, 12);
 
-  const tokensUrl = ['https:', '', ['api', 'dexscreener', 'com'].join('.'), 'latest', 'dex', 'tokens', solanaMints.join(',')].join('/');
-  const pairsRes = await fetch(tokensUrl);
-  const pairsData = await pairsRes.json();
-  const pairs = Array.isArray(pairsData.pairs) ? pairsData.pairs : [];
+      if (solanaMints.length > 0) {
+        const tokensUrl = ['https:', '', ['api', 'dexscreener', 'com'].join('.'), 'latest', 'dex', 'tokens', solanaMints.join(',')].join('/');
+        const pairsRes = await fetch(tokensUrl, { headers });
+        const pairsData = await pairsRes.json();
+        const pairs = Array.isArray(pairsData.pairs) ? pairsData.pairs : [];
 
-  const bestByMint = new Map();
-  for (const p of pairs) {
-    if (p.chainId !== 'solana') continue;
-    const mint = p.baseToken?.address;
-    if (!mint) continue;
-    const existing = bestByMint.get(mint);
-    if (!existing || (p.liquidity?.usd || 0) > (existing.liquidity?.usd || 0)) {
-      bestByMint.set(mint, p);
+        const bestByMint = new Map();
+        for (const p of pairs) {
+          if (p.chainId !== 'solana') continue;
+          const mint = p.baseToken?.address;
+          if (!mint) continue;
+          const existing = bestByMint.get(mint);
+          if (!existing || (p.liquidity?.usd || 0) > (existing.liquidity?.usd || 0)) {
+            bestByMint.set(mint, p);
+          }
+        }
+
+        candidates = [...bestByMint.values()]
+          .filter(p => {
+            const liq = p.liquidity?.usd || 0;
+            const vol24 = p.volume?.h24 || 0;
+            const buys1h = p.txns?.h1?.buys || 0;
+            const sells1h = p.txns?.h1?.sells || 0;
+            return liq >= 5000 && vol24 >= liq && buys1h > sells1h;
+          })
+          .sort((a, b) => (b.priceChange?.h1 || 0) - (a.priceChange?.h1 || 0))
+          .slice(0, 4)
+          .map(p => ({
+            name: p.baseToken.name,
+            symbol: p.baseToken.symbol,
+            mint: p.baseToken.address,
+            liq: Number(p.liquidity.usd),
+            mc: Number(p.marketCap || 0),
+            ch1h: Number(p.priceChange?.h1 || 0),
+            buys: p.txns?.h1?.buys || 0,
+            sells: p.txns?.h1?.sells || 0
+          }));
+      }
     }
-  }
+  } catch (e) {}
+  if (candidates.length === 0) {
+    const geckoUrl = ['https:', '', ['api', 'geckoterminal', 'com'].join('.'), 'api', 'v2', 'networks', 'solana', 'trending_pools'].join('/');
+    const gRes = await fetch(geckoUrl, { headers: { 'Accept': 'application/json' } });
+    if (!gRes.ok) throw new Error(`HTTP ${gRes.status}`);
+    const gData = await gRes.json();
+    const pools = Array.isArray(gData.data) ? gData.data : [];
 
-  const candidates = [...bestByMint.values()]
-    .filter(p => {
-      const liq = p.liquidity?.usd || 0;
-      const vol24 = p.volume?.h24 || 0;
-      const buys1h = p.txns?.h1?.buys || 0;
-      const sells1h = p.txns?.h1?.sells || 0;
-      return liq >= 5000 && vol24 >= liq && buys1h > sells1h;
-    })
-    .sort((a, b) => (b.priceChange?.h1 || 0) - (a.priceChange?.h1 || 0))
-    .slice(0, 4);
+    candidates = pools
+      .map(pool => {
+        const attr = pool.attributes || {};
+        const tokenId = pool.relationships?.base_token?.data?.id || '';
+        const mint = tokenId.replace('solana_', '');
+        const liq = Number(attr.reserve_in_usd || 0);
+        const ch1h = Number(attr.price_change_percentage?.h1 || 0);
+        const buys = attr.transactions?.h1?.buys || 0;
+        const sells = attr.transactions?.h1?.sells || 0;
+        const rawName = (attr.name || '').split('/').at(0).trim();
+        return {
+          name: rawName || 'Solana Token',
+          symbol: rawName || '',
+          mint,
+          liq,
+          mc: Number(attr.fdv_usd || 0),
+          ch1h,
+          buys,
+          sells
+        };
+      })
+      .filter(c => c.mint.length >= 32 && c.liq >= 5000 && c.buys > c.sells)
+      .slice(0, 4);
+  }
 
   if (candidates.length === 0) {
     return '📭 لا توجد عملات تطابق شروط الزخم والسيولة (سيولة +$5,000 وضغط شرائي) في هذه اللحظة. جرب البحث بعد قليل.';
@@ -107,28 +95,24 @@ async function scanMomentumTokens() {
 
   const results = [];
   for (let i = 0; i < candidates.length; i++) {
-    const p = candidates.at(i);
-    const mint = p.baseToken.address;
+    const c = candidates.at(i);
     let authBadge = '⚪ غير مفحوص';
     try {
-      const infoRes = await callSolanaRPC('getAccountInfo', [mint, { encoding: 'jsonParsed' }]);
+      const infoRes = await callSolanaRPC('getAccountInfo', [c.mint, { encoding: 'jsonParsed' }]);
       const info = infoRes?.value?.data?.parsed?.info;
       if (info) {
         authBadge = (!info.mintAuthority && !info.freezeAuthority) ? '🛡️ الصك والتجميد ملغاة' : '⚠️ توجد صلاحيات تحكم';
       }
     } catch (e) {}
 
-    const liq = `$${Number(p.liquidity.usd).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
-    const mc = p.marketCap ? `$${Number(p.marketCap).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : 'غير متاح';
-    const ch1h = p.priceChange?.h1 ?? 0;
-    const buys = p.txns?.h1?.buys ?? 0;
-    const sells = p.txns?.h1?.sells ?? 0;
+    const liqStr = `$${c.liq.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+    const mcStr = c.mc ? `$${c.mc.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : 'غير متاح';
 
     results.push(
-      `*${i + 1}. ${p.baseToken.name} (${p.baseToken.symbol})*\n` +
-      `📌 \`${mint}\`\n` +
-      `💧 السيولة: ${liq} | 📈 MC: ${mc}\n` +
-      `⚡ تغير الساعة: *${ch1h > 0 ? '+' : ''}${ch1h}%* (شراء ${buys} / بيع ${sells})\n` +
+      `*${i + 1}. ${c.name} (${c.symbol})*\n` +
+      `📌 \`${c.mint}\`\n` +
+      `💧 السيولة: ${liqStr} | 📈 MC: ${mcStr}\n` +
+      `⚡ تغير الساعة: *${c.ch1h > 0 ? '+' : ''}${c.ch1h}%* (شراء ${c.buys} / بيع ${c.sells})\n` +
       `🔐 الأمان: ${authBadge}`
     );
   }
@@ -139,7 +123,6 @@ async function scanMomentumTokens() {
     results.join('\n\n')
   );
 }
-
 async function checkSolanaToken(mintAddress) {
   const [accountInfo, market] = await Promise.all([
     callSolanaRPC('getAccountInfo', [mintAddress, { encoding: 'jsonParsed' }]),
@@ -214,9 +197,7 @@ async function checkSolanaToken(mintAddress) {
     `🐋 *أكبر 10 محافظ تستحوذ على* ${holdersSection}${holdersWarning}\n\n` +
     `${securityAlert}`
   );
-}
-
-http.createServer((req, res) => {
+}http.createServer((req, res) => {
   if (req.method === 'POST' && req.url === `/bot${token}`) {
     let body = '';
     req.on('data', chunk => { body += chunk.toString(); });
@@ -298,3 +279,4 @@ bot.on('message', async (msg) => {
     bot.sendMessage(chatId, 'أرسل *عنوان عملة سولانا* لفحصها، أو اكتب كلمة *بحث* لاكتشاف العملات النشطة.', { parse_mode: 'Markdown' });
   }
 });
+
