@@ -5,13 +5,8 @@ const token = process.env.BOT_TOKEN;
 const url = 'https://nanwo-bot.onrender.com';
 const port = process.env.PORT || 3000;
 
-// إنشاء البوت بدون polling
 const bot = new TelegramBot(token);
 
-// ربط البوت برابط موقعك على Render
-bot.setWebHook(`${url}/bot${token}`);
-
-// استقبال الرسائل من تيليجرام ومعالجة فحص السيرفر
 http.createServer((req, res) => {
   if (req.method === 'POST' && req.url === `/bot${token}`) {
     let body = '';
@@ -25,6 +20,12 @@ http.createServer((req, res) => {
       res.writeHead(200);
       res.end();
     });
+  } else if (req.url === '/setup') {
+    // رابط جاهز للربط دون الحاجة لكتابة التوكن يدوياً
+    res.writeHead(302, {
+      'Location': `https://telegram.org{token}/setWebhook?url=${url}/bot${token}`
+    });
+    res.end();
   } else {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('Bot is running via Webhook!');
@@ -33,7 +34,6 @@ http.createServer((req, res) => {
   console.log(`Server is running on port ${port}`);
 });
 
-// أوامر البوت
 bot.onText(/\/start/, (msg) => {
   bot.sendMessage(msg.chat.id, "يعمل الآن بنجاح!");
 });
